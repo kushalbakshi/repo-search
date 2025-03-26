@@ -5,12 +5,19 @@ import uuid
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple, Union
 
+from langchain.text_splitter import (
+    RecursiveCharacterTextSplitter,
+    MarkdownTextSplitter,
+    PythonCodeTextSplitter,
+)
+from langchain.docstore.document import Document as LangChainDocument
+
 from repo_search.config import config
 from repo_search.models import DocumentChunk
 
 
 class TextChunker:
-    """Chunks text content into semantically meaningful segments."""
+    """Chunks text content into semantically meaningful segments using LangChain text splitters."""
 
     def __init__(
         self,
@@ -21,8 +28,8 @@ class TextChunker:
         """Initialize the text chunker.
 
         Args:
-            chunk_size: Maximum number of tokens per chunk.
-            chunk_overlap: Number of tokens to overlap between chunks.
+            chunk_size: Maximum number of characters per chunk.
+            chunk_overlap: Number of characters to overlap between chunks.
             max_tokens: Maximum number of tokens allowed in a single chunk.
         """
         self.chunk_size = chunk_size or config.chunk_size
@@ -31,6 +38,23 @@ class TextChunker:
         
         # Maximum file size to process (2MB) - larger files will be truncated
         self.max_file_size = 2 * 1024 * 1024  # 2MB
+        
+        # Initialize text splitters
+        self.general_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+        )
+        
+        self.markdown_splitter = MarkdownTextSplitter(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+        )
+        
+        # Initialize specific splitters
+        self.python_splitter = PythonCodeTextSplitter(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+        )
         
     def _estimate_tokens(self, text: str) -> int:
         """Roughly estimate the number of tokens in a text string.
@@ -48,7 +72,7 @@ class TextChunker:
     def chunk_file(
         self, file_path: Path, repository: str, file_content: Optional[str] = None
     ) -> List[DocumentChunk]:
-        """Chunk a file into semantically meaningful segments.
+        """Chunk a file into semantically meaningful segments using LangChain text splitters.
 
         Args:
             file_path: Path to the file.
@@ -90,21 +114,73 @@ class TextChunker:
                 print(f"Error reading file {file_path}: {e}")
                 return []
 
-        # Determine the chunking strategy based on the file type
+        # Get file extension and relative path
         ext = file_path.suffix.lower()
         relative_path = file_path.name
         
-        # For programming files, use semantic chunking
+        # Create LangChain document with metadata
+        lc_document = LangChainDocument(
+            page_content=file_content,
+            metadata={
+                "file_path": str(relative_path),
+                "repository": repository,
+                "extension": ext,
+            }
+        )
+        
+        # Choose the appropriate splitter based on file type
+        splitter = self.general_splitter
+        chunk_type = "text"
+        
         if self._is_code_file(ext):
-            return self._chunk_code(file_content, repository, str(relative_path))
+            if ext == ".py":
+                # Use specialized Python code splitter for Python files
+                splitter = self.python_splitter
+            else:
+                # For other code files, use recursive character splitter with code-focused separators
+                splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=self.chunk_size,
+                    chunk_overlap=self.chunk_overlap,
+                    separators=[
+                        # Common code separators in order of priority
+                        "\nclass ", "\ndef ", "\nfunction ", "\npublic ", "\nprivate ", 
+                        "\nprotected ", "\nif ", "\nfor ", "\nwhile ", "\nswitch ",
+                        "\ncase ", "\nconst ", "\nlet ", "\nvar ", 
+                        "\n\n", "\n", " ", ""
+                    ]
+                )
+            chunk_type = "code"
+        elif ext in [".md"]:
+            splitter = self.markdown_splitter
+            chunk_type = "markdown"
         
-        # For markdown and documentation files, chunk by headers
-        elif ext in [".md", ".rst", ".txt", ".html", ".htm"]:
-            return self._chunk_markdown(file_content, repository, str(relative_path))
+        # Split the document using LangChain
+        lc_chunks = splitter.split_documents([lc_document])
         
-        # For other text files, use fixed-size chunking
-        else:
-            return self._chunk_text(file_content, repository, str(relative_path))
+        # Convert LangChain chunks to DocumentChunk objects
+        result_chunks = []
+        for i, lc_chunk in enumerate(lc_chunks):
+            # Calculate approximate line numbers based on chunk position
+            if i == 0:
+                start_line = 0
+            else:
+                # Estimate start line based on position in document
+                content_before = file_content.split(lc_chunk.page_content)[0]
+                start_line = content_before.count('\n')
+            
+            end_line = start_line + lc_chunk.page_content.count('\n')
+            
+            # Create DocumentChunk
+            result_chunks.append(self._create_chunk(
+                content=lc_chunk.page_content,
+                repository=repository,
+                file_path=str(relative_path),
+                start_line=start_line,
+                end_line=end_line,
+                chunk_type=chunk_type,
+            ))
+            
+        return result_chunks
 
     def _is_code_file(self, extension: str) -> bool:
         """Check if a file is a code file.
@@ -121,233 +197,6 @@ class TextChunker:
             ".scala", ".sh", ".bash", ".zsh", ".sql",
         }
         return extension in code_extensions
-
-    def _chunk_code(
-        self, content: str, repository: str, file_path: str
-    ) -> List[DocumentChunk]:
-        """Chunk code into semantically meaningful segments.
-
-        We'll try to chunk by functions, classes, methods, etc. For simplicity, we'll
-        use a regex-based approach, which won't be perfect but should work reasonably
-        well for most languages.
-
-        Args:
-            content: Code content.
-            repository: Repository name in the format 'owner/name'.
-            file_path: Path to the file.
-
-        Returns:
-            List of document chunks.
-        """
-        chunks = []
-        lines = content.split("\n")
-        
-        # Try to identify function/class/method definitions
-        # This is a simplified approach and won't work perfectly for all languages
-        patterns = [
-            # Python/JavaScript/Java/C# function/method
-            r"^\s*(def|function|public|private|protected|async|static|class)\s+\w+.*$",
-            # C/C++ function
-            r"^\s*[\w\*]+\s+[\w\*]+\s*\(.*\).*$",
-            # Variable declarations in various languages
-            r"^\s*(var|let|const|public|private|protected|static)\s+\w+.*$",
-        ]
-        
-        pattern = "|".join(f"({p})" for p in patterns)
-        
-        current_section = []
-        current_section_start = 0
-        
-        for i, line in enumerate(lines):
-            # Check if this line looks like a definition
-            if re.match(pattern, line):
-                # If we have accumulated lines, create a chunk
-                if current_section:
-                    chunk_content = "\n".join(current_section)
-                    chunks.append(self._create_chunk(
-                        chunk_content, 
-                        repository, 
-                        file_path,
-                        start_line=current_section_start,
-                        end_line=i-1,
-                        chunk_type="code",
-                    ))
-                
-                current_section = [line]
-                current_section_start = i
-            else:
-                current_section.append(line)
-                
-                # Check if we need to create a chunk based on token count or line count
-                chunk_content = "\n".join(current_section)
-                token_estimate = self._estimate_tokens(chunk_content)
-                
-                if token_estimate > self.max_tokens or len(current_section) > self.chunk_size // 10:
-                    chunks.append(self._create_chunk(
-                        chunk_content, 
-                        repository, 
-                        file_path,
-                        start_line=current_section_start,
-                        end_line=current_section_start + len(current_section) - 1,
-                        chunk_type="code",
-                    ))
-                    
-                    # Keep some context for the next chunk
-                    overlap = min(len(current_section), self.chunk_overlap // 10)
-                    current_section = current_section[-overlap:]
-                    current_section_start = current_section_start + len(current_section) - overlap
-        
-        # Add any remaining content
-        if current_section:
-            chunk_content = "\n".join(current_section)
-            chunks.append(self._create_chunk(
-                chunk_content, 
-                repository, 
-                file_path,
-                start_line=current_section_start,
-                end_line=current_section_start + len(current_section) - 1,
-                chunk_type="code",
-            ))
-        
-        return chunks
-
-    def _chunk_markdown(
-        self, content: str, repository: str, file_path: str
-    ) -> List[DocumentChunk]:
-        """Chunk markdown content by headers.
-
-        Args:
-            content: Markdown content.
-            repository: Repository name in the format 'owner/name'.
-            file_path: Path to the file.
-
-        Returns:
-            List of document chunks.
-        """
-        chunks = []
-        lines = content.split("\n")
-        
-        # Pattern to match markdown headers
-        header_pattern = r"^(#+)\s+(.*)$"
-        
-        current_section = []
-        current_section_start = 0
-        current_header = None
-        
-        for i, line in enumerate(lines):
-            # Check if this line is a header
-            header_match = re.match(header_pattern, line)
-            
-            if header_match:
-                # If we have accumulated lines, create a chunk
-                if current_section:
-                    chunk_content = "\n".join(current_section)
-                    chunks.append(self._create_chunk(
-                        chunk_content, 
-                        repository, 
-                        file_path,
-                        start_line=current_section_start,
-                        end_line=i-1,
-                        chunk_type="markdown",
-                        header=current_header,
-                    ))
-                
-                # Start a new section with this header
-                current_header = header_match.group(2)
-                current_section = [line]
-                current_section_start = i
-            else:
-                current_section.append(line)
-                
-                # Check token count or line count
-                chunk_content = "\n".join(current_section)
-                token_estimate = self._estimate_tokens(chunk_content)
-                
-                if token_estimate > self.max_tokens or len(current_section) > self.chunk_size // 10:
-                    chunks.append(self._create_chunk(
-                        chunk_content, 
-                        repository, 
-                        file_path,
-                        start_line=current_section_start,
-                        end_line=current_section_start + len(current_section) - 1,
-                        chunk_type="markdown",
-                        header=current_header,
-                    ))
-                    
-                    # Keep some context for the next chunk
-                    overlap = min(len(current_section), self.chunk_overlap // 10)
-                    current_section = current_section[-overlap:]
-                    current_section_start = current_section_start + len(current_section) - overlap
-        
-        # Add any remaining content
-        if current_section:
-            chunk_content = "\n".join(current_section)
-            chunks.append(self._create_chunk(
-                chunk_content, 
-                repository, 
-                file_path,
-                start_line=current_section_start,
-                end_line=current_section_start + len(current_section) - 1,
-                chunk_type="markdown",
-                header=current_header,
-            ))
-        
-        return chunks
-
-    def _chunk_text(
-        self, content: str, repository: str, file_path: str
-    ) -> List[DocumentChunk]:
-        """Chunk text into fixed-size segments with overlap.
-
-        Args:
-            content: Text content.
-            repository: Repository name in the format 'owner/name'.
-            file_path: Path to the file.
-
-        Returns:
-            List of document chunks.
-        """
-        chunks = []
-        lines = content.split("\n")
-        
-        current_section = []
-        current_section_start = 0
-        
-        for i, line in enumerate(lines):
-            current_section.append(line)
-            
-            # Check if we need to create a chunk based on token count or line count
-            chunk_content = "\n".join(current_section)
-            token_estimate = self._estimate_tokens(chunk_content)
-            
-            if token_estimate > self.max_tokens or len(current_section) >= self.chunk_size // 10:
-                chunks.append(self._create_chunk(
-                    chunk_content, 
-                    repository, 
-                    file_path,
-                    start_line=current_section_start,
-                    end_line=current_section_start + len(current_section) - 1,
-                    chunk_type="text",
-                ))
-                
-                # Keep some context for the next chunk
-                overlap = min(len(current_section), self.chunk_overlap // 10)
-                current_section = current_section[-overlap:]
-                current_section_start = current_section_start + len(current_section) - overlap
-        
-        # Add any remaining content
-        if current_section:
-            chunk_content = "\n".join(current_section)
-            chunks.append(self._create_chunk(
-                chunk_content, 
-                repository, 
-                file_path,
-                start_line=current_section_start,
-                end_line=current_section_start + len(current_section) - 1,
-                chunk_type="text",
-            ))
-        
-        return chunks
 
     def _create_chunk(
         self,
