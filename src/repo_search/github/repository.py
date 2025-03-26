@@ -46,10 +46,13 @@ class GitHubRepositoryFetcher:
 
         try:
             repo = self.github.get_repo(repo_name)
+            # Get the latest commit hash
+            commit_hash = repo.get_commits()[0].sha
             return RepositoryInfo(
                 owner=owner,
                 name=name,
                 url=repo.html_url,
+                commit_hash=commit_hash,
             )
         except Exception as e:
             raise ValueError(f"Error accessing repository {repo_name}: {e}")
@@ -93,21 +96,37 @@ class GitHubRepositoryFetcher:
         contents = self._get_all_files(repo)
 
         print(f"Downloading {len(contents)} files from {repo_info.full_name}...")
+        successfully_downloaded = 0
         for content_file in tqdm(contents):
             # Skip directories
             if content_file.type == "dir":
                 continue
 
-            # Get the content
-            file_content = content_file.decoded_content
-            # Create the file path
-            file_path = output_dir / content_file.path
-            # Create the parent directory if it doesn't exist
-            file_path.parent.mkdir(exist_ok=True, parents=True)
-            # Write the content to the file
-            file_path.write_bytes(file_content)
+            try:
+                # Check if the file has a supported encoding
+                if content_file.encoding != "base64":
+                    print(f"Skipping file with unsupported encoding '{content_file.encoding}': {content_file.path}")
+                    continue
 
-        repo_info.num_files = len(contents)
+                # Get the content
+                file_content = content_file.decoded_content
+                # Create the file path
+                file_path = output_dir / content_file.path
+                # Create the parent directory if it doesn't exist
+                file_path.parent.mkdir(exist_ok=True, parents=True)
+                # Write the content to the file
+                file_path.write_bytes(file_content)
+                successfully_downloaded += 1
+            except AssertionError as e:
+                # This handles the "unsupported encoding: none" error
+                print(f"Skipping file due to encoding error: {content_file.path} - {str(e)}")
+                continue
+            except Exception as e:
+                print(f"Error downloading file {content_file.path}: {str(e)}")
+                continue
+
+        repo_info.num_files = successfully_downloaded
+        print(f"Successfully downloaded {successfully_downloaded} of {len(contents)} files")
 
     def _get_all_files(self, repo: Repository) -> List[Dict]:
         """Get all files in a repository.
@@ -155,6 +174,7 @@ class GitHubRepositoryFetcher:
             ".mp3", ".mp4", ".avi", ".mov", ".mkv", ".wav", ".flac",
             ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".jar", ".war",
             ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+            ".ipynb_checkpoints",
         }
 
         # Text extensions
@@ -174,13 +194,24 @@ class GitHubRepositoryFetcher:
         if ext in text_extensions:
             return True
 
-        # Try to read the file as text
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                f.read(1024)  # Read a small chunk
-            return True
-        except UnicodeDecodeError:
-            return False
+        # Check for binary file patterns in the path
+        binary_patterns = ['node_modules', '__pycache__', '.git', '.idea', '.vscode']
+        for pattern in binary_patterns:
+            if pattern in str(file_path):
+                return False
+
+        # Try to read the file as text with multiple encodings
+        encodings = ['utf-8', 'latin-1', 'ascii']
+        for encoding in encodings:
+            try:
+                with open(file_path, "r", encoding=encoding) as f:
+                    f.read(1024)  # Read a small chunk
+                return True
+            except UnicodeDecodeError:
+                continue
+
+        # If all encodings fail, it's likely a binary file
+        return False
 
     def get_text_files(self, directory: Path) -> Iterator[Path]:
         """Get all text files in a directory.

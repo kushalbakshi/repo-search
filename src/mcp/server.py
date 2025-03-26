@@ -22,22 +22,30 @@ client = RepoSearchClient()
 
 # Tool definitions using decorators
 @mcp.tool()
-def index_repository(repository: str) -> str:
+def index_repository(repository: str, force_refresh: bool = False) -> str:
     """Index a GitHub repository for semantic search.
     
     Args:
         repository: Repository name in the format 'owner/name'
+        force_refresh: If True, forces re-indexing even if commit hash is unchanged
     
     Returns:
         Success message with repository information
     """
     try:
-        repo_info = client.index_repository(repository)
-        return (f"Successfully indexed repository {repository}.\n"
-                f"- URL: {repo_info.url}\n"
-                f"- Files: {repo_info.num_files}\n"
-                f"- Chunks: {repo_info.num_chunks}\n"
-                f"- Last indexed: {repo_info.last_indexed}")
+        repo_info = client.index_repository(repository, force_refresh)
+        result = [
+            f"Successfully indexed repository {repository}.",
+            f"- URL: {repo_info.url}",
+            f"- Files: {repo_info.num_files}",
+            f"- Chunks: {repo_info.num_chunks}",
+            f"- Last indexed: {repo_info.last_indexed}"
+        ]
+        
+        if repo_info.commit_hash:
+            result.append(f"- Commit hash: {repo_info.commit_hash}")
+            
+        return "\n".join(result)
     except Exception as e:
         raise Exception(f"Error indexing repository: {e}")
 
@@ -266,6 +274,11 @@ async def handle_jsonrpc_request(request_str: str) -> str:
                                     "repository": {
                                         "type": "string",
                                         "description": "Repository name in the format 'owner/name'",
+                                    },
+                                    "force_refresh": {
+                                        "type": "boolean",
+                                        "description": "If True, forces re-indexing even if commit hash is unchanged",
+                                        "default": "false"
                                     }
                                 },
                                 "required": ["repository"],
@@ -350,7 +363,8 @@ async def handle_jsonrpc_request(request_str: str) -> str:
                 repository = args.get("repository")
                 if not repository:
                     return create_error_response(request_id, 32602, "Repository name is required.")
-                result = index_repository(repository)
+                force_refresh = args.get("force_refresh", False)
+                result = index_repository(repository, force_refresh)
                 
             elif tool_name == "semantic_search":
                 query = args.get("query")

@@ -16,15 +16,31 @@ class TextChunker:
         self,
         chunk_size: int = None,
         chunk_overlap: int = None,
+        max_tokens: int = 7000,  # Set below OpenAI's 8192 limit to be safe
     ) -> None:
         """Initialize the text chunker.
 
         Args:
             chunk_size: Maximum number of tokens per chunk.
             chunk_overlap: Number of tokens to overlap between chunks.
+            max_tokens: Maximum number of tokens allowed in a single chunk.
         """
         self.chunk_size = chunk_size or config.chunk_size
         self.chunk_overlap = chunk_overlap or config.chunk_overlap
+        self.max_tokens = max_tokens
+        
+    def _estimate_tokens(self, text: str) -> int:
+        """Roughly estimate the number of tokens in a text string.
+        
+        This is a simple heuristic: ~4 chars per token for English text.
+        
+        Args:
+            text: Text to estimate tokens for.
+            
+        Returns:
+            Estimated token count.
+        """
+        return len(text) // 4
 
     def chunk_file(
         self, file_path: Path, repository: str, file_content: Optional[str] = None
@@ -48,6 +64,9 @@ class TextChunker:
                 try:
                     with open(file_path, "r", encoding="latin-1") as f:
                         file_content = f.read()
+                except UnicodeDecodeError:
+                    print(f"Skipping file with unsupported encoding: {file_path}")
+                    return []
                 except Exception as e:
                     print(f"Error reading file {file_path}: {e}")
                     return []
@@ -140,9 +159,11 @@ class TextChunker:
             else:
                 current_section.append(line)
                 
-                # If we've accumulated too many lines, create a chunk
-                if len(current_section) > self.chunk_size // 10:  # Rough approximation
-                    chunk_content = "\n".join(current_section)
+                # Check if we need to create a chunk based on token count or line count
+                chunk_content = "\n".join(current_section)
+                token_estimate = self._estimate_tokens(chunk_content)
+                
+                if token_estimate > self.max_tokens or len(current_section) > self.chunk_size // 10:
                     chunks.append(self._create_chunk(
                         chunk_content, 
                         repository, 
@@ -219,9 +240,11 @@ class TextChunker:
             else:
                 current_section.append(line)
                 
-                # If we've accumulated too many lines, create a chunk
-                if len(current_section) > self.chunk_size // 10:
-                    chunk_content = "\n".join(current_section)
+                # Check token count or line count
+                chunk_content = "\n".join(current_section)
+                token_estimate = self._estimate_tokens(chunk_content)
+                
+                if token_estimate > self.max_tokens or len(current_section) > self.chunk_size // 10:
                     chunks.append(self._create_chunk(
                         chunk_content, 
                         repository, 
@@ -274,9 +297,11 @@ class TextChunker:
         for i, line in enumerate(lines):
             current_section.append(line)
             
-            # If we've accumulated enough lines, create a chunk
-            if len(current_section) >= self.chunk_size // 10:  # Rough approximation
-                chunk_content = "\n".join(current_section)
+            # Check if we need to create a chunk based on token count or line count
+            chunk_content = "\n".join(current_section)
+            token_estimate = self._estimate_tokens(chunk_content)
+            
+            if token_estimate > self.max_tokens or len(current_section) >= self.chunk_size // 10:
                 chunks.append(self._create_chunk(
                     chunk_content, 
                     repository, 
@@ -329,6 +354,15 @@ class TextChunker:
         Returns:
             Document chunk.
         """
+        # Final safety check to make sure content isn't too large
+        token_estimate = self._estimate_tokens(content)
+        if token_estimate > self.max_tokens:
+            print(f"Warning: Truncating oversized chunk for {file_path} ({token_estimate} tokens > {self.max_tokens})")
+            # Simple truncation - not ideal but prevents crashes
+            lines = content.split('\n')
+            truncated_lines = lines[:int(len(lines) * self.max_tokens / token_estimate)]
+            content = '\n'.join(truncated_lines)
+        
         # Generate a stable ID for the chunk
         chunk_id = str(uuid.uuid5(
             uuid.NAMESPACE_URL, 
@@ -389,10 +423,18 @@ class RepositoryChunker:
                 # Get the relative path within the repository
                 relative_path = file_path.relative_to(directory)
                 
-                # Chunk the file
-                chunks = self.text_chunker.chunk_file(file_path, repository)
-                
-                for chunk in chunks:
-                    yield chunk
+                # Try to chunk the file
+                try:
+                    chunks = self.text_chunker.chunk_file(file_path, repository)
+                    
+                    for chunk in chunks:
+                        yield chunk
+                except UnicodeDecodeError as e:
+                    print(f"Skipping file with unsupported encoding: {file_path}")
+                    continue
+                except Exception as e:
+                    print(f"Error chunking file {file_path}: {e}")
+                    continue
             except Exception as e:
-                print(f"Error chunking file {file_path}: {e}")
+                print(f"Error processing file {file_path}: {e}")
+                continue

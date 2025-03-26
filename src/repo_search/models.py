@@ -15,6 +15,7 @@ class RepositoryInfo(BaseModel):
     last_indexed: Optional[datetime] = None
     num_files: int = 0
     num_chunks: int = 0
+    commit_hash: Optional[str] = None
 
     @property
     def full_name(self) -> str:

@@ -31,11 +31,12 @@ class RepoSearchClient:
             token=token,
         )
 
-    def index_repository(self, repository: str) -> RepositoryInfo:
+    def index_repository(self, repository: str, force_refresh: bool = False) -> RepositoryInfo:
         """Index a GitHub repository.
 
         Args:
             repository: Repository name in the format 'owner/name'.
+            force_refresh: If True, forces re-indexing even if commit hash is unchanged.
 
         Returns:
             Repository information.
@@ -43,7 +44,7 @@ class RepoSearchClient:
         Raises:
             ValueError: If the repository does not exist or is not accessible.
         """
-        return self.engine.index_repository(repository)
+        return self.engine.index_repository(repository, force_refresh)
 
     def semantic_search(
         self,

@@ -41,22 +41,48 @@ class SearchEngine:
         self.repo_fetcher = GitHubRepositoryFetcher(token=self.token)
         self.chunker = RepositoryChunker()
 
-    def index_repository(self, repository: str) -> RepositoryInfo:
+    def index_repository(self, repository: str, force_refresh: bool = False) -> RepositoryInfo:
         """Index a GitHub repository.
 
         Args:
             repository: Repository name in the format 'owner/name'.
+            force_refresh: If True, forces re-indexing even if commit hash is unchanged.
 
         Returns:
             Repository information.
         """
+        # First, get current repository info (with the latest commit hash)
+        print(f"Checking repository {repository}...")
+        try:
+            # This will fetch the latest repo info with commit hash
+            current_repo_info = self.repo_fetcher.get_repository_info(repository)
+        except Exception as e:
+            print(f"Error getting repository info: {e}")
+            raise
+
         # Check if the repository is already indexed
         existing_repo = self.db.get_repository(repository)
-        if existing_repo:
-            print(f"Repository {repository} is already indexed.")
+        
+        # If already indexed with the same commit hash, we can skip re-indexing
+        if (existing_repo and 
+            existing_repo.commit_hash and 
+            existing_repo.commit_hash == current_repo_info.commit_hash and 
+            not force_refresh):
+            print(f"Repository {repository} is already indexed with the same commit hash.")
+            print(f"Latest commit: {existing_repo.commit_hash}")
             print(f"Last indexed: {existing_repo.last_indexed}")
             print(f"Number of chunks: {existing_repo.num_chunks}")
             return existing_repo
+            
+        # Repository needs to be indexed (new, changed, or forced refresh)
+        if existing_repo:
+            if force_refresh:
+                print(f"Forcing refresh of repository {repository}...")
+            else:
+                print(f"Repository {repository} has changed (commit {current_repo_info.commit_hash}).")
+                print(f"Previous commit: {existing_repo.commit_hash or 'unknown'}")
+        else:
+            print(f"Repository {repository} is not yet indexed.")
 
         # Create a temporary directory for the repository contents
         temp_dir = tempfile.mkdtemp(prefix=f"reposearch_")
@@ -66,14 +92,23 @@ class SearchEngine:
             repo_info, repo_dir = self.repo_fetcher.fetch_repository_contents(
                 repository, Path(temp_dir)
             )
+            
+            # Make sure we keep the commit hash
+            if not repo_info.commit_hash:
+                repo_info.commit_hash = current_repo_info.commit_hash
 
             # Store repository info
             self.db.add_repository(repo_info)
 
             # Chunk the repository contents
             print(f"Chunking repository contents...")
-            chunks = list(self.chunker.chunk_repository(repository, repo_dir))
-            print(f"Generated {len(chunks)} chunks.")
+            try:
+                chunks = []
+                for chunk in self.chunker.chunk_repository(repository, repo_dir):
+                    chunks.append(chunk)
+                print(f"Generated {len(chunks)} chunks.")
+            except UnicodeDecodeError as e:
+                print(f"Warning: Skipping some files due to encoding issues: {e}")
 
             # Embed and store the chunks
             print(f"Embedding and storing chunks...")

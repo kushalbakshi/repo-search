@@ -306,6 +306,7 @@ class ChromaVectorDatabase(VectorDatabase):
                         last_indexed=last_indexed,
                         num_files=repo_data.get("num_files", 0),
                         num_chunks=repo_data.get("num_chunks", 0),
+                        commit_hash=repo_data.get("commit_hash"),
                     )
                 )
             except Exception as e:
@@ -327,6 +328,7 @@ class ChromaVectorDatabase(VectorDatabase):
             "num_files": repository_info.num_files,
             "num_chunks": repository_info.num_chunks,
             "last_indexed": repository_info.last_indexed.isoformat() if repository_info.last_indexed else None,
+            "commit_hash": repository_info.commit_hash,
         }
         
         # Check if the repository already exists
@@ -389,6 +391,7 @@ class ChromaVectorDatabase(VectorDatabase):
                 last_indexed=last_indexed,
                 num_files=repo_data.get("num_files", 0),
                 num_chunks=repo_data.get("num_chunks", 0),
+                commit_hash=repo_data.get("commit_hash"),
             )
         except Exception as e:
             print(f"Error parsing repository data: {e}")
