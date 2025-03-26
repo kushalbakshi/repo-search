@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Union
 from repo_search.config import config
 from repo_search.models import RepositoryInfo, SearchResult
 from repo_search.search.engine import SearchEngine
+from repo_search.embedding.openai import OpenAIEmbedder
 
 
 class RepoSearchClient:
@@ -16,6 +17,8 @@ class RepoSearchClient:
         db_path: Optional[Path] = None,
         api_key: Optional[str] = None,
         token: Optional[str] = None,
+        max_tokens_per_chunk: int = 1000,
+        max_tokens_per_batch: int = 4000,
     ) -> None:
         """Initialize the RepoSearch client.
 
@@ -24,6 +27,8 @@ class RepoSearchClient:
                 config.
             api_key: OpenAI API key. If None, will use the key from config.
             token: GitHub token for authentication. If None, will use anonymous access.
+            max_tokens_per_chunk: Maximum tokens allowed in a single chunk.
+            max_tokens_per_batch: Maximum total tokens allowed in a single batch.
         """
         self.engine = SearchEngine(
             db_path=db_path,

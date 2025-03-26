@@ -1,76 +1,85 @@
 # RepoSearch
 
-RepoSearch is a tool for semantic search over GitHub repositories. It chunks repository content, generates semantic embeddings, and stores them in a vector database for efficient semantic search.
+A tool for indexing GitHub repositories for semantic search via OpenAI embeddings.
 
 ## Features
 
-- Clone GitHub repositories by owner/name format
-- Process all text files in the repository
-- Chunk content using intelligent chunking strategies
-- Generate semantic embeddings using OpenAI
-- Store embeddings in a vector database with a flexible backend
-- Provide semantic search capabilities through a Python API
+- Index GitHub repositories with semantic search capabilities
+- Filter out binary files to focus on text-only content
+- Token-aware chunking and batching to prevent OpenAI API errors
+- Automatic handling of oversized content with proper truncation
+- Smart batching to optimize API usage
 
-## Getting Started
-
-### Prerequisites
-
-- Python 3.9 or higher
-- OpenAI API key 
-
-### Installation
+## Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/repo-search.git
-cd repo-search
-
-# Install the package
 pip install -e .
 ```
 
-### Configuration
+## Environment Setup
 
-Create a `.env` file in the root directory with the following content:
+Create a `.env` file with:
 
 ```
-OPENAI_API_KEY=your_openai_api_key
+OPENAI_API_KEY=your-openai-api-key
+GITHUB_TOKEN=your-github-token  # Optional, allows higher rate limits
 ```
 
-You can also optionally configure:
-```
-GITHUB_TOKEN=your_github_token
-DATA_DIR=data
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_BATCH_SIZE=16
-CHUNK_SIZE=1000
-CHUNK_OVERLAP=100
-MAX_RESULTS=10
-SCORE_THRESHOLD=0.0
+## Usage
+
+### Command-line Interface
+
+```bash
+# Basic usage
+python -m improved_repo_search_test.py owner/repository
+
+# With search queries
+python -m improved_repo_search_test.py owner/repository --query "What is the purpose of this class?" "How does authentication work?"
+
+# With customized token limits
+python -m improved_repo_search_test.py owner/repository --max-tokens-per-chunk 1500 --max-tokens-per-batch 6000
+
+# With customized chunking parameters
+python -m improved_repo_search_test.py owner/repository --chunk-size 300 --chunk-overlap 50 --batch-size 8
 ```
 
-### Usage
+### API Usage
 
 ```python
 from repo_search.api.client import RepoSearchClient
 
-# Initialize the client
+# Create a client with default token limits (1000 per chunk, 4000 per batch)
 client = RepoSearchClient()
 
+# Or customize token limits
+client = RepoSearchClient(
+    max_tokens_per_chunk=1500,  # Maximum tokens per text chunk
+    max_tokens_per_batch=6000,  # Maximum tokens per API batch
+)
+
 # Index a repository
-client.index_repository("owner/repo")
+repo_info = client.index_repository("owner/repository")
 
-# Perform a semantic search
-results = client.semantic_search("How to implement authentication?")
+# Search the repository
+results = client.semantic_search(
+    "How does authentication work?",
+    repository="owner/repository",
+    limit=3
+)
 
-# Print results
-for result in results:
-    print(f"Score: {result.score}")
-    print(f"Content: {result.content}")
+# Display results
+for i, result in enumerate(results, 1):
+    print(f"Result {i} (Score: {result.score:.4f}):")
     print(f"Source: {result.source}")
-    print("---")
+    print(f"Content: {result.content[:200]}...")
 ```
 
-## License
+## Token Limits Explained
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+The RepoSearch tool now intelligently handles OpenAI's token limits:
+
+- `max_tokens_per_chunk` (default: 1000): Maximum tokens for any single chunk of text. Chunks exceeding this limit are truncated. This prevents "token limit exceeded" errors from OpenAI's API.
+
+- `max_tokens_per_batch` (default: 4000): Maximum combined tokens for a batch of chunks sent to the API. This optimizes API calls while staying within OpenAI's limits.
+
+These defaults provide a good balance of context preservation and API efficiency, but can be adjusted for your specific needs.

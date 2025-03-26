@@ -523,6 +523,7 @@ async def run_jsonrpc_server() -> None:
 
 def main() -> None:
     """Run the RepoSearch MCP server."""
+    """Run the RepoSearch MCP server."""
     import asyncio
 
     # Use FastMCP to handle MCP requests
