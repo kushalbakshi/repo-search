@@ -74,12 +74,25 @@ for i, result in enumerate(results, 1):
     print(f"Content: {result.content[:200]}...")
 ```
 
-## Token Limits Explained
+### Add to Cline
 
-The RepoSearch tool now intelligently handles OpenAI's token limits:
+```json
+{
+  "mcpServers": {
+    "repo-search": {
+      "command": "python",
+      "args": [
+        "/path/to/repo-search/src/mcp/server.py"
+      ],
+      "env": {},
+      "disabled": false,
+      "autoApprove": [],
+      "timeout": 600
+    }
+  }
+}
+```
 
-- `max_tokens_per_chunk` (default: 1000): Maximum tokens for any single chunk of text. Chunks exceeding this limit are truncated. This prevents "token limit exceeded" errors from OpenAI's API.
+## License
 
-- `max_tokens_per_batch` (default: 4000): Maximum combined tokens for a batch of chunks sent to the API. This optimizes API calls while staying within OpenAI's limits.
-
-These defaults provide a good balance of context preservation and API efficiency, but can be adjusted for your specific needs.
+This project is licensed under the MIT License - see the LICENSE file for details.
