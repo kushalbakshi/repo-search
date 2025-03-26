@@ -71,6 +71,25 @@ for result in results:
     print("---")
 ```
 
+### Add to Cline
+
+```json
+{
+  "mcpServers": {
+    "repo-search": {
+      "command": "python",
+      "args": [
+        "/path/to/repo-search/src/mcp/server.py"
+      ],
+      "env": {},
+      "disabled": false,
+      "autoApprove": [],
+      "timeout": 600
+    }
+  }
+}
+```
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
