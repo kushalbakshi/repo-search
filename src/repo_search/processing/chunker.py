@@ -16,7 +16,7 @@ class TextChunker:
         self,
         chunk_size: int = None,
         chunk_overlap: int = None,
-        max_tokens: int = 7000,  # Set below OpenAI's 8192 limit to be safe
+        max_tokens: int = 5000,  # Reduced from 7000 to avoid embedding API limits
     ) -> None:
         """Initialize the text chunker.
 
@@ -28,6 +28,9 @@ class TextChunker:
         self.chunk_size = chunk_size or config.chunk_size
         self.chunk_overlap = chunk_overlap or config.chunk_overlap
         self.max_tokens = max_tokens
+        
+        # Maximum file size to process (2MB) - larger files will be truncated
+        self.max_file_size = 2 * 1024 * 1024  # 2MB
         
     def _estimate_tokens(self, text: str) -> int:
         """Roughly estimate the number of tokens in a text string.
@@ -55,21 +58,37 @@ class TextChunker:
         Returns:
             List of document chunks.
         """
+        # Check file size first
+        if file_path.stat().st_size > self.max_file_size:
+            print(f"Warning: File too large, truncating to {self.max_file_size//1024}KB: {file_path}")
+            
         if file_content is None:
             try:
+                # Limit reading to max_file_size
                 with open(file_path, "r", encoding="utf-8") as f:
-                    file_content = f.read()
+                    if file_path.stat().st_size > self.max_file_size:
+                        file_content = f.read(self.max_file_size)
+                        print(f"Truncated {file_path} to {self.max_file_size//1024}KB")
+                    else:
+                        file_content = f.read()
             except UnicodeDecodeError:
                 # Try with a different encoding
                 try:
                     with open(file_path, "r", encoding="latin-1") as f:
-                        file_content = f.read()
+                        if file_path.stat().st_size > self.max_file_size:
+                            file_content = f.read(self.max_file_size)
+                            print(f"Truncated {file_path} to {self.max_file_size//1024}KB")
+                        else:
+                            file_content = f.read()
                 except UnicodeDecodeError:
                     print(f"Skipping file with unsupported encoding: {file_path}")
                     return []
                 except Exception as e:
                     print(f"Error reading file {file_path}: {e}")
                     return []
+            except Exception as e:
+                print(f"Error reading file {file_path}: {e}")
+                return []
 
         # Determine the chunking strategy based on the file type
         ext = file_path.suffix.lower()

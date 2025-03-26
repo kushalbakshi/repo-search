@@ -31,12 +31,22 @@ class RepoSearchClient:
             token=token,
         )
 
-    def index_repository(self, repository: str, force_refresh: bool = False) -> RepositoryInfo:
+    def index_repository(
+        self, 
+        repository: str, 
+        force_refresh: bool = False,
+        force_redownload: bool = False,
+        force_rechunk: bool = False,
+        force_reembed: bool = False
+    ) -> RepositoryInfo:
         """Index a GitHub repository.
 
         Args:
             repository: Repository name in the format 'owner/name'.
-            force_refresh: If True, forces re-indexing even if commit hash is unchanged.
+            force_refresh: If True, forces re-indexing of all steps even if commit hash is unchanged.
+            force_redownload: If True, forces re-downloading the repository.
+            force_rechunk: If True, forces re-chunking of the repository.
+            force_reembed: If True, forces re-embedding of the repository chunks.
 
         Returns:
             Repository information.
@@ -44,7 +54,13 @@ class RepoSearchClient:
         Raises:
             ValueError: If the repository does not exist or is not accessible.
         """
-        return self.engine.index_repository(repository, force_refresh)
+        return self.engine.index_repository(
+            repository, 
+            force_refresh=force_refresh,
+            force_redownload=force_redownload,
+            force_rechunk=force_rechunk,
+            force_reembed=force_reembed
+        )
 
     def semantic_search(
         self,

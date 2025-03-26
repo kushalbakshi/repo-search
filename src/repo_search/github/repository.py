@@ -167,50 +167,66 @@ class GitHubRepositoryFetcher:
         Returns:
             True if the file is a text file, False otherwise.
         """
-        # Binary extensions
-        binary_extensions = {
-            ".pyc", ".pyo", ".so", ".o", ".a", ".lib", ".dll", ".exe", ".bin",
-            ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp",
-            ".mp3", ".mp4", ".avi", ".mov", ".mkv", ".wav", ".flac",
-            ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".jar", ".war",
-            ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-            ".ipynb_checkpoints",
-        }
-
-        # Text extensions
+        # Text extensions - be more specific to avoid processing non-text files
         text_extensions = {
-            ".txt", ".md", ".rst", ".html", ".htm", ".css", ".scss", ".sass",
-            ".js", ".jsx", ".ts", ".tsx", ".vue", ".json", ".xml", ".yaml", ".yml",
-            ".toml", ".ini", ".cfg", ".conf", ".properties",
+            # Documentation
+            ".txt", ".md", ".rst", ".adoc", ".asciidoc", 
+            
+            # Web
+            ".html", ".htm", ".css", ".scss", ".sass", ".less",
+            ".js", ".jsx", ".ts", ".tsx", ".vue", ".svelte",
+            
+            # Config
+            ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", 
+            ".properties", ".env", ".gitignore", ".gitconfig", ".gitattributes",
+            
+            # Code
             ".py", ".java", ".c", ".cpp", ".h", ".hpp", ".cs", ".rb", ".php", ".go",
-            ".rs", ".swift", ".kt", ".scala", ".sh", ".bash", ".zsh", ".fish",
-            ".sql", ".graphql", ".proto", ".cmake", ".mk", ".mak", ".Makefile",
+            ".rs", ".swift", ".kt", ".scala", ".sh", ".bash", ".zsh", ".fish", 
+            ".sql", ".graphql", ".proto", ".cmake", ".mk", ".Makefile",
+            
+            # Structured data that should be reasonably sized
+            ".csv", ".tsv",
         }
-
-        # Check extension
-        ext = file_path.suffix.lower()
-        if ext in binary_extensions:
+        
+        # Max file size for text files (5MB)
+        MAX_TEXT_FILE_SIZE = 5 * 1024 * 1024
+        
+        # Check file size first - large files are likely binary
+        if file_path.stat().st_size > MAX_TEXT_FILE_SIZE:
+            print(f"Skipping large file (> 5MB): {file_path}")
             return False
+        
+        # Check extension - only process files with known text extensions
+        ext = file_path.suffix.lower()
         if ext in text_extensions:
-            return True
-
-        # Check for binary file patterns in the path
-        binary_patterns = ['node_modules', '__pycache__', '.git', '.idea', '.vscode']
-        for pattern in binary_patterns:
-            if pattern in str(file_path):
-                return False
-
-        # Try to read the file as text with multiple encodings
-        encodings = ['utf-8', 'latin-1', 'ascii']
-        for encoding in encodings:
+            # Still try to read a small sample to confirm it's text
             try:
-                with open(file_path, "r", encoding=encoding) as f:
-                    f.read(1024)  # Read a small chunk
+                with open(file_path, "r", encoding="utf-8") as f:
+                    sample = f.read(1024)
+                    
+                    # Check for binary characters in the sample
+                    binary_chars = sum(1 for c in sample if ord(c) < 9 or (ord(c) > 13 and ord(c) < 32))
+                    if binary_chars > len(sample) * 0.1:  # More than 10% binary chars
+                        print(f"Skipping likely binary file despite text extension: {file_path}")
+                        return False
+                        
                 return True
             except UnicodeDecodeError:
-                continue
-
-        # If all encodings fail, it's likely a binary file
+                try:
+                    # Try one more encoding
+                    with open(file_path, "r", encoding="latin-1") as f:
+                        sample = f.read(1024)
+                        binary_chars = sum(1 for c in sample if ord(c) < 9 or (ord(c) > 13 and ord(c) < 32))
+                        if binary_chars > len(sample) * 0.1:
+                            return False
+                    return True
+                except:
+                    return False
+            except Exception:
+                return False
+        
+        # By default, consider unknown extensions as non-text
         return False
 
     def get_text_files(self, directory: Path) -> Iterator[Path]:

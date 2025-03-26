@@ -22,18 +22,33 @@ client = RepoSearchClient()
 
 # Tool definitions using decorators
 @mcp.tool()
-def index_repository(repository: str, force_refresh: bool = False) -> str:
+def index_repository(
+    repository: str, 
+    force_refresh: bool = False,
+    force_redownload: bool = False,
+    force_rechunk: bool = False,
+    force_reembed: bool = False
+) -> str:
     """Index a GitHub repository for semantic search.
     
     Args:
         repository: Repository name in the format 'owner/name'
-        force_refresh: If True, forces re-indexing even if commit hash is unchanged
+        force_refresh: If True, forces re-indexing of all steps even if commit hash is unchanged
+        force_redownload: If True, forces re-downloading the repository
+        force_rechunk: If True, forces re-chunking of the repository
+        force_reembed: If True, forces re-embedding of the repository chunks
     
     Returns:
         Success message with repository information
     """
     try:
-        repo_info = client.index_repository(repository, force_refresh)
+        repo_info = client.index_repository(
+            repository, 
+            force_refresh=force_refresh,
+            force_redownload=force_redownload,
+            force_rechunk=force_rechunk,
+            force_reembed=force_reembed
+        )
         result = [
             f"Successfully indexed repository {repository}.",
             f"- URL: {repo_info.url}",
@@ -126,12 +141,28 @@ def list_indexed_repositories() -> str:
             
         repo_texts = []
         for repo in repositories:
+            status_items = []
+            if hasattr(repo, 'commit_hash') and repo.commit_hash:
+                status_items.append(f"Commit: {repo.commit_hash[:8]}...")
+            
+            if hasattr(repo, 'download_successful'):
+                status_items.append(f"Download: {'✓' if repo.download_successful else '✗'}")
+            
+            if hasattr(repo, 'chunking_successful'):
+                status_items.append(f"Chunking: {'✓' if repo.chunking_successful else '✗'}")
+                
+            if hasattr(repo, 'embedding_successful'):
+                status_items.append(f"Embedding: {'✓' if repo.embedding_successful else '✗'}")
+                
+            status = ", ".join(status_items)
+                
             repo_texts.append(
                 f"- {repo.full_name}\n"
                 f"  URL: {repo.url}\n"
                 f"  Files: {repo.num_files}\n"
                 f"  Chunks: {repo.num_chunks}\n"
-                f"  Last indexed: {repo.last_indexed}"
+                f"  Last indexed: {repo.last_indexed}\n"
+                f"  Status: {status}"
             )
             
         return "Indexed Repositories:\n\n" + "\n\n".join(repo_texts)
@@ -279,6 +310,21 @@ async def handle_jsonrpc_request(request_str: str) -> str:
                                         "type": "boolean",
                                         "description": "If True, forces re-indexing even if commit hash is unchanged",
                                         "default": "false"
+                                    },
+                                    "force_redownload": {
+                                        "type": "boolean",
+                                        "description": "If True, forces re-downloading the repository",
+                                        "default": "false"
+                                    },
+                                    "force_rechunk": {
+                                        "type": "boolean",
+                                        "description": "If True, forces re-chunking of the repository",
+                                        "default": "false"
+                                    },
+                                    "force_reembed": {
+                                        "type": "boolean",
+                                        "description": "If True, forces re-embedding of the repository chunks",
+                                        "default": "false"
                                     }
                                 },
                                 "required": ["repository"],
@@ -364,7 +410,16 @@ async def handle_jsonrpc_request(request_str: str) -> str:
                 if not repository:
                     return create_error_response(request_id, 32602, "Repository name is required.")
                 force_refresh = args.get("force_refresh", False)
-                result = index_repository(repository, force_refresh)
+                force_redownload = args.get("force_redownload", False)
+                force_rechunk = args.get("force_rechunk", False)
+                force_reembed = args.get("force_reembed", False)
+                result = index_repository(
+                    repository, 
+                    force_refresh=force_refresh,
+                    force_redownload=force_redownload,
+                    force_rechunk=force_rechunk,
+                    force_reembed=force_reembed
+                )
                 
             elif tool_name == "semantic_search":
                 query = args.get("query")

@@ -16,6 +16,9 @@ class RepositoryInfo(BaseModel):
     num_files: int = 0
     num_chunks: int = 0
     commit_hash: Optional[str] = None
+    download_successful: bool = False
+    chunking_successful: bool = False
+    embedding_successful: bool = False
 
     @property
     def full_name(self) -> str:

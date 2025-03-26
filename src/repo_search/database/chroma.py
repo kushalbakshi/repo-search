@@ -307,6 +307,9 @@ class ChromaVectorDatabase(VectorDatabase):
                         num_files=repo_data.get("num_files", 0),
                         num_chunks=repo_data.get("num_chunks", 0),
                         commit_hash=repo_data.get("commit_hash"),
+                        download_successful=repo_data.get("download_successful", False),
+                        chunking_successful=repo_data.get("chunking_successful", False),
+                        embedding_successful=repo_data.get("embedding_successful", False),
                     )
                 )
             except Exception as e:
@@ -329,6 +332,9 @@ class ChromaVectorDatabase(VectorDatabase):
             "num_chunks": repository_info.num_chunks,
             "last_indexed": repository_info.last_indexed.isoformat() if repository_info.last_indexed else None,
             "commit_hash": repository_info.commit_hash,
+            "download_successful": repository_info.download_successful,
+            "chunking_successful": repository_info.chunking_successful,
+            "embedding_successful": repository_info.embedding_successful,
         }
         
         # Check if the repository already exists
@@ -392,6 +398,9 @@ class ChromaVectorDatabase(VectorDatabase):
                 num_files=repo_data.get("num_files", 0),
                 num_chunks=repo_data.get("num_chunks", 0),
                 commit_hash=repo_data.get("commit_hash"),
+                download_successful=repo_data.get("download_successful", False),
+                chunking_successful=repo_data.get("chunking_successful", False),
+                embedding_successful=repo_data.get("embedding_successful", False),
             )
         except Exception as e:
             print(f"Error parsing repository data: {e}")
