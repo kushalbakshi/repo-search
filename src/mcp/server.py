@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MCP server for DocSearch."""
+"""MCP server for RepoSearch."""
 
 import os
 import sys
@@ -16,23 +16,23 @@ from mcp import (
     StdioServerTransport,
 )
 
-from doc_search.api.client import DocSearchClient
-from doc_search.config import config
-from doc_search.models import RepositoryInfo, SearchResult
+from repo_search.api.client import RepoSearchClient
+from repo_search.config import config
+from repo_search.models import RepositoryInfo, SearchResult
 
 
-class DocSearchMcpServer:
-    """MCP server for DocSearch."""
+class RepoSearchMcpServer:
+    """MCP server for RepoSearch."""
 
     def __init__(self) -> None:
-        """Initialize the DocSearch MCP server."""
-        # Initialize DocSearch client
-        self.client = DocSearchClient()
+        """Initialize the RepoSearch MCP server."""
+        # Initialize RepoSearch client
+        self.client = RepoSearchClient()
 
         # Initialize MCP server
         self.server = Server(
             {
-                "name": "doc-search",
+                "name": "repo-search",
                 "version": "0.1.0",
             },
             {
@@ -432,14 +432,14 @@ class DocSearchMcpServer:
         """Run the MCP server."""
         transport = StdioServerTransport()
         await self.server.connect(transport)
-        print("DocSearch MCP server running on stdio", file=sys.stderr)
+        print("RepoSearch MCP server running on stdio", file=sys.stderr)
 
 
 def main() -> None:
-    """Run the DocSearch MCP server."""
+    """Run the RepoSearch MCP server."""
     import asyncio
 
-    server = DocSearchMcpServer()
+    server = RepoSearchMcpServer()
     asyncio.run(server.run())
 
 
